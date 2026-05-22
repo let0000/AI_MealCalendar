@@ -16,7 +16,33 @@ DB_NAME = "nutrilog.db"
 # ------------------------------------------------------------------
 # google gemini API 키
 # ------------------------------------------------------------------
-GEMINI_API_KEY = "AIzaSyBSHbJvwAiQ0fjM2IXVZokuEO9cyQI8lvk"
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+
+# ------------------------------------------------------------------
+# [보안] 안전한 API Key 획득 함수 (로컬 및 클라우드 통합 지원)
+# ------------------------------------------------------------------
+def get_safe_api_key():
+    """
+    보안 가이드라인에 따라 안전하게 Gemini API 키를 조회합니다.
+    우선순위: 
+    1. Streamlit Secrets (배포 서버 및 로컬 .streamlit/secrets.toml)
+    2. OS 환경 변수 (Environment Variable)
+    3. 코드 상단 하드코딩 변수 (GEMINI_API_KEY)
+    """
+    # 1. Streamlit Secrets에 저장된 키가 최우선
+    if "GEMINI_API_KEY" in st.secrets:
+        return st.secrets["GEMINI_API_KEY"]
+    
+    # 2. OS 환경 변수 조회
+    env_key = os.environ.get("GEMINI_API_KEY", "")
+    if env_key.strip():
+        return env_key
+        
+    # 3. 하드코딩 변수 (백업용)
+    if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" and GEMINI_API_KEY.strip():
+        return GEMINI_API_KEY
+        
+    return ""
 
 # ------------------------------------------------------------------
 # 자동 로그인 관련 브라우저 Storage JS 헬퍼 함수 (표준형)
@@ -394,7 +420,7 @@ if not st.session_state["logged_in"]:
         login_pw = st.text_input("비밀번호 입력", type="password", key="login_pw")
         
         # 자동 로그인 유지 옵션 추가
-        remember_me = st.checkbox("자동 로그인", value=True)
+        remember_me = st.checkbox("자동 로그인 상태 유지", value=True)
         
         if st.button("로그인하기", use_container_width=True):
             if login_id.strip() == "" or login_pw.strip() == "":
@@ -491,10 +517,11 @@ else:
             st.image(image, caption="업로드된 음식 이미지", use_container_width=True)
             
             if st.button("AI 자동 영양 분석 시작", type="primary", use_container_width=True):
-                active_api_key = GEMINI_API_KEY if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" else os.environ.get("GEMINI_API_KEY", "")
+                # 안전한 보안 연동 로직으로 API 키 자동 확보
+                active_api_key = get_safe_api_key()
                 
                 if not active_api_key or active_api_key.strip() == "":
-                    st.error("⚠️ `main.py` 파일 상단의 `GEMINI_API_KEY` 변수에 실제 발급받은 Gemini API 키를 채워 넣어 주세요!")
+                    st.error("⚠️ Gemini API 키를 찾을 수 없습니다. 배포 서버의 환경 변수(Secrets)를 설정하거나 로컬 `.streamlit/secrets.toml` 설정을 확인해 주세요.")
                 else:
                     with st.spinner("AI가 음식 이미지를 기반으로 칼로리를 추정 중입니다..."):
                         ai_result = analyze_food_image(image, active_api_key)
