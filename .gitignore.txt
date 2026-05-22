@@ -1,0 +1,13 @@
+# API 키나 비밀번호가 담긴 설정 파일 제외
+.env
+
+# 로컬에서 테스트하며 쌓인 개인 DB 파일 제외
+nutrilog.db
+nutrilog.db-journal
+nutrilog.db-wal
+
+# 파이썬 실행 시 자동 생성되는 임시 파일 제외
+__pycache__/
+.virtualenv/
+venv/
+.streamlit/
