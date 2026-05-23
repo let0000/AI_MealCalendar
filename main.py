@@ -14,41 +14,18 @@ import secrets
 DB_NAME = "nutrilog.db"
 
 # ------------------------------------------------------------------
-# google gemini API 키
-# ------------------------------------------------------------------
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
-
-# ------------------------------------------------------------------
-# [보안] 안전한 API Key 획득 함수 (로컬 및 클라우드 통합 지원)
+# [보안] 안전한 API Key 획득 함수 (무조건 파일/배포 Secrets에서만 조회)
 # ------------------------------------------------------------------
 def get_safe_api_key():
-    """
-    보안 가이드라인에 따라 안전하게 Gemini API 키를 조회합니다.
-    우선순위: 
-    1. Streamlit Secrets (배포 서버 및 로컬 .streamlit/secrets.toml)
-    2. OS 환경 변수 (Environment Variable)
-    3. 코드 상단 하드코딩 변수 (GEMINI_API_KEY)
-    """
-    # 1. Streamlit Secrets에 저장된 키가 최우선
+    """무조건 Streamlit Secrets(.streamlit/secrets.toml 또는 배포 서버 설정) 공간에서만 키를 조회합니다."""
     if "GEMINI_API_KEY" in st.secrets:
         return st.secrets["GEMINI_API_KEY"]
-    
-    # 2. OS 환경 변수 조회
-    env_key = os.environ.get("GEMINI_API_KEY", "")
-    if env_key.strip():
-        return env_key
-        
-    # 3. 하드코딩 변수 (백업용)
-    if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE" and GEMINI_API_KEY.strip():
-        return GEMINI_API_KEY
-        
     return ""
 
 # ------------------------------------------------------------------
 # 자동 로그인 관련 브라우저 Storage JS 헬퍼 함수 (표준형)
 # ------------------------------------------------------------------
 def save_login_to_local_storage(username, token):
-    """로그인 성공 시 식별 정보와 토큰을 브라우저 localStorage에 안전하게 보관합니다."""
     js_code = f"""
     <script>
         localStorage.setItem('auto_user', '{username}');
@@ -58,7 +35,6 @@ def save_login_to_local_storage(username, token):
     st.components.v1.html(js_code, height=0)
 
 def clear_login_from_local_storage():
-    """로그아웃 버튼 클릭 시 브라우저 내 자동 로그인 관련 값을 완전히 소각합니다."""
     js_code = """
     <script>
         localStorage.removeItem('auto_user');
@@ -68,7 +44,6 @@ def clear_login_from_local_storage():
     st.components.v1.html(js_code, height=0)
 
 def trigger_auto_login_check():
-    """브라우저의 localStorage를 조회하여 토큰이 발견되면 주소창 쿼리 매개변수로 주입해 서버 검증을 요청합니다."""
     js_code = """
     <script>
         const user = localStorage.getItem('auto_user');
@@ -89,23 +64,17 @@ def trigger_auto_login_check():
 # 1. 데이터베이스(DB) 및 다중 사용자 보안 관리 함수
 # ------------------------------------------------------------------
 def get_db_connection():
-    """
-    SQLite 데이터베이스 연결 객체를 생성합니다.
-    동시성 잠금 에러(database is locked)를 해결하기 위해 timeout과 WAL 모드를 설정합니다.
-    """
     conn = sqlite3.connect(DB_NAME, timeout=15.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
-    """앱에 필요한 데이터베이스 테이블을 생성하고, 스키마에 이상이 있다면 자동으로 감지하여 복구합니다."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 1) 회원 정보 테이블 생성
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
@@ -113,7 +82,6 @@ def init_db():
             )
         ''')
         
-        # 2) 기존 테이블이 존재하는지 확인하고 칼럼 구조 확인
         cursor.execute("PRAGMA table_info(food_logs)")
         existing_columns = [col[1] for col in cursor.fetchall()]
         
@@ -121,7 +89,6 @@ def init_db():
             cursor.execute("DROP TABLE IF EXISTS food_logs")
             existing_columns = []
             
-        # 3) 식단 기록 테이블 생성
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS food_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,7 +101,6 @@ def init_db():
             )
         ''')
         
-        # 4) 자동 로그인 세션 테이블 생성
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sessions (
                 username TEXT,
@@ -143,7 +109,6 @@ def init_db():
             )
         ''')
         
-        # 다시 칼럼 구조 파악
         cursor.execute("PRAGMA table_info(food_logs)")
         existing_columns = [col[1] for col in cursor.fetchall()]
         
@@ -156,7 +121,6 @@ def init_db():
             "image": "BLOB"
         }
         
-        # 누락된 칼럼 동적 추가
         for col_name, col_type in required_columns.items():
             if col_name not in existing_columns:
                 cursor.execute(f"ALTER TABLE food_logs ADD COLUMN {col_name} {col_type}")
@@ -170,15 +134,12 @@ def init_db():
 
 @st.cache_resource
 def run_database_initialization():
-    """서버 구동 시 딱 한 번만 데이터베이스 초기화를 진행하여 잠금(Lock) 에러를 방지합니다."""
     init_db()
 
 def hash_password(password):
-    """비밀번호 보안을 위해 SHA-256 방식으로 암호화합니다."""
     return hashlib.sha256(password.encode()).hexdigest()
 
 def register_user(username, password):
-    """새로운 사용자를 등록합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -192,7 +153,6 @@ def register_user(username, password):
         conn.close()
 
 def login_user(username, password):
-    """아이디와 비밀번호 일치 여부를 확인합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -207,7 +167,6 @@ def login_user(username, password):
 # 2. 식단 로그 관리 함수
 # ------------------------------------------------------------------
 def get_logs_by_date(username, date_str):
-    """특정 날짜에 해당하는 현재 사용자의 식단 목록을 조회합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -222,7 +181,6 @@ def get_logs_by_date(username, date_str):
         conn.close()
 
 def delete_log(log_id, username):
-    """지정한 식단 데이터를 안전하게 삭제합니다."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -235,7 +193,6 @@ def delete_log(log_id, username):
 # 3. Gemini API 기반 멀티모달 음식 분석 함수
 # ------------------------------------------------------------------
 def analyze_food_image(image, api_key):
-    """Google Gemini 2.5 Flash API를 통해 이미지를 분석하고 JSON 영양 정보를 반환합니다."""
     try:
         client = genai.Client(api_key=api_key)
         
@@ -280,7 +237,6 @@ run_database_initialization()
 
 st.set_page_config(page_title="AI 식단 일지", page_icon="🥗", layout="centered")
 
-# 세션 상태 변수 초기화
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 if "username" not in st.session_state:
@@ -332,7 +288,6 @@ if st.session_state["pending_auto_login"]:
     save_login_to_local_storage(p_user, p_token)
     st.session_state["pending_auto_login"] = None
 
-# UI 커스텀 스타일 디자인 (고대비 스코어 카드)
 st.markdown("""
 <style>
     .main-header {
@@ -465,11 +420,9 @@ else:
                         ai_result = analyze_food_image(image, active_api_key)
                         if ai_result:
                             st.success("⚡ 분석이 성공적으로 마무리되었습니다!")
-                            # 제출 양식 검토 조회를 위해 세션 버퍼에 임시 보관
                             st.session_state["current_ai_result"] = ai_result
                             st.session_state["current_image"] = image
                             
-            # 임시 세션 버퍼에 분석 결과가 있을 때만 최종 검토용 입력 폼(Form) 출력
             if "current_ai_result" in st.session_state and st.session_state["current_ai_result"]:
                 result = st.session_state["current_ai_result"]
                 food_name = result.get("food_name", "미확인 음식")
@@ -496,22 +449,31 @@ else:
                     
                 st.info(f"💡 **AI 한줄평**: {comment}")
                 
-                # [시간 수정 및 저장 선택 전용 Form]
                 st.markdown("### 💾 기록 세부 정보 및 저장 선택")
+                
+                # 🌟 [버그 수정 핵심] st.form 내부 위젯이 리턴하는 값을 완전히 고정하기 위해 key 값을 명시적으로 부여합니다.
                 with st.form("save_log_form", clear_on_submit=False):
                     st.write("실제 식사 정보 및 시간과 일치하는지 확인하고 아래 저장 버튼을 눌러주세요.")
                     
-                    now = datetime.now()
-                    edit_date = st.date_input("식사 날짜 선택", now.date())
-                    edit_time = st.time_input("식사 시간 선택", now.time())
+                    # 폼이 그려지는 기준 시점의 시간을 들고 옵니다.
+                    base_now = datetime.now()
                     
-                    final_food_name = st.text_input("음식명 최종 보정", value=food_name)
-                    final_calories = st.number_input("칼로리 최종 보정 (kcal)", value=int(calories), step=1)
+                    edit_date = st.date_input("식사 날짜 선택", value=base_now.date(), key="input_edit_date")
+                    edit_time = st.time_input("식사 시간 선택", value=base_now.time(), key="input_edit_time")
+                    
+                    final_food_name = st.text_input("음식명 최종 보정", value=food_name, key="input_food_name")
+                    final_calories = st.number_input("칼로리 최종 보정 (kcal)", value=int(calories), step=1, key="input_calories")
                     
                     submit_save = st.form_submit_button("📝 이 내용으로 일지에 저장하기", type="primary", use_container_width=True)
                     
                     if submit_save:
-                        combined_datetime = datetime.combine(edit_date, edit_time)
+                        # 🌟 [버그 수정 핵심 2] 버튼 클릭 시점 재렌더링으로 위젯 변수가 유실되는 것을 막기 위해 st.session_state 가 물고 있는 위젯의 실시간 state 값을 직접 바인딩합니다.
+                        chosen_date = st.session_state["input_edit_date"]
+                        chosen_time = st.session_state["input_edit_time"]
+                        chosen_name = st.session_state["input_food_name"]
+                        chosen_calories = st.session_state["input_calories"]
+                        
+                        combined_datetime = datetime.combine(chosen_date, chosen_time)
                         formatted_timestamp = combined_datetime.strftime("%Y-%m-%d %H:%M:%S")
                         
                         img_byte_arr = io.BytesIO()
@@ -525,11 +487,10 @@ else:
                             cursor.execute('''
                                 INSERT INTO food_logs (username, timestamp, food_name, calories, macros_json, image)
                                 VALUES (?, ?, ?, ?, ?, ?)
-                            ''', (st.session_state["username"], formatted_timestamp, final_food_name, final_calories, macros_str, binary_data))
+                            ''', (st.session_state["username"], formatted_timestamp, chosen_name, chosen_calories, macros_str, binary_data))
                             conn.commit()
                             st.success(f"💾 {formatted_timestamp} 일자로 식단 일지에 안전하게 기록되었습니다!")
                             
-                            # 데이터 저장이 완전히 끝났으므로 임시 세션 버퍼 비우기 및 화면 갱신
                             del st.session_state["current_ai_result"]
                             del st.session_state["current_image"]
                             st.rerun()
@@ -577,7 +538,7 @@ else:
             st.markdown("#### 🕒 오늘의 기록 리스트")
             for log in daily_logs:
                 log_id = log["id"]
-                log_time = datetime.strptime(log["timestamp"], "%Y-%m-%d %H:%M:%S").strftime("%p %I시 %M분")
+                meal_time = datetime.strptime(log["timestamp"], "%Y-%m-%d %H:%M:%S").strftime("%p %I시 %M분")
                 
                 c_img, c_info, c_action = st.columns([1.5, 3, 1])
                 
@@ -593,7 +554,7 @@ else:
                 
                 with c_info:
                     st.markdown(f"**{log['food_name']}**")
-                    st.write(f"⏱️ 등록 시각: {log_time}")
+                    st.write(f"⏱️ 식사 시각: {meal_time}")
                     st.write(f"🔥 칼로리: **{log['calories']} kcal**")
                     try:
                         macros = json.loads(log["macros_json"])
